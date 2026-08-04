@@ -1,0 +1,478 @@
+// ═══════════════════════════════════════════════════════════════════
+// MGTM EXPRESS — PRISMA DATABASE SCHEMA
+// Personal Delivery Partner sa Mangatarem, Pangasinan
+// ═══════════════════════════════════════════════════════════════════
+// Para mag-apply ng changes:
+//   npx prisma migrate dev --name <description>
+//   npx prisma generate
+//
+// Para tingnan ang database visually:
+//   npx prisma studio
+// ═══════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MODEL: BusinessSettings
+// ═══════════════════════════════════════════════════════════════════
+// Ito ang PUSO ng white-labeling system.
+// Lahat ng branding, pricing, at operational settings ay nakaimbak
+// dito at pwedeng baguhin ng admin sa pamamagitan ng Admin Panel.
+//
+// Gumagamit ng key-value pairs para flexible at extensible.
+// Ginagamit ang CSS variables sa frontend para mag-apply ng
+// theme changes nang walang page reload.
+// ═══════════════════════════════════════════════════════════════════
+model BusinessSettings {
+  id          String   @id @default(uuid())
+  key         String   @unique   // Identifier ng setting (e.g. "business_name")
+  value       String             // Halaga ng setting (laging string, i-parse sa frontend)
+  type        SettingType        // Para malaman kung paano i-interpret ang value
+  category    SettingCategory    // Para sa grouping sa Admin Panel
+  label       String             // Human-readable na pangalan (para sa Admin Panel UI)
+  description String?            // Paliwanag kung para saan ang setting
+  isPublic    Boolean @default(false) // true = accessible ng frontend nang walang auth
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MODEL: User
+// ═══════════════════════════════════════════════════════════════════
+// Lahat ng accounts: customers, merchants, riders, at admins
+// ═══════════════════════════════════════════════════════════════════
+model User {
+  id               String    @id @default(uuid())
+  name             String?                          // Optional sa una
+  phone            String    @unique                // Pangunahing login identifier
+  email            String?   @unique
+  role             Role      @default(CUSTOMER)
+  isActive         Boolean   @default(true)         // false = banned/suspended account
+  isVerified       Boolean   @default(false)        // true = ID + selfie na-upload at na-approve
+  idPhotoUrl       String?                          // Path ng uploaded government ID
+  facePhotoUrl     String?                          // Path ng uploaded selfie
+  fcmToken         String?                          // Firebase token para sa push notifications
+  lastLoginAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Relations
+  orders        Order[]
+  otpCodes      OTPCode[]
+  merchant      Merchant?               // Kung MERCHANT ang role, may linked Merchant record
+  subscription  MerchantSubscription?  // Subscription ng merchant
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MODEL: OTPCode
+// ═══════════════════════════════════════════════════════════════════
+// Pansamantalang OTP codes para sa phone authentication
+// ═══════════════════════════════════════════════════════════════════
+model OTPCode {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  code      String                           // 6-digit OTP
+  expiresAt DateTime                         // Kalian mag-eexpire
+  isUsed    Boolean  @default(false)
+  ipAddress String?                          // Para sa rate limiting at security logging
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([code])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MODEL: Merchant
+// ═══════════════════════════════════════════════════════════════════
+// Mga store/business na gumagamit ng MGTM Express platform
+// ═══════════════════════════════════════════════════════════════════
+model Merchant {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id])
+
+  // Business Info
+  businessName    String
+  businessType    String?                    // e.g. "Restaurant", "Grocery", "Pharmacy"
+  description     String?
+  logoUrl         String?
+  coverPhotoUrl   String?
+
+  // Location
+  address         String
+  latitude        Float?
+  longitude       Float?
+  serviceArea     String?                    // Comma-separated na service areas
+
+  // Contact
+  contactPhone    String
+  contactEmail    String?
+
+  // Operations
+  isOpen          Boolean  @default(false)
+  openingTime     String   @default("08:00")
+  closingTime     String   @default("21:00")
+  operatingDays   String   @default("Mon,Tue,Wed,Thu,Fri,Sat,Sun")
+
+  // Status
+  isApproved      Boolean  @default(false)  // Admin dapat mag-approve
+  isActive        Boolean  @default(true)
+  isFeatured      Boolean  @default(false)  // Para sa featured merchants section
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  menuItems       MenuItem[]
+  subscription    MerchantSubscription?
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MODEL: MerchantSubscription
+// ═══════════════════════════════════════════════════════════════════
+// Subscription billing para sa mga merchant
+// ₱1,499/month o ₱15,289.80/year
+// ═══════════════════════════════════════════════════════════════════
+model MerchantSubscription {
+  id              String             @id @default(uuid())
+  merchantId      String             @unique
+  merchant        Merchant           @relation(fields: [merchantId], references: [id])
+  userId          String             @unique
+  user            User               @relation(fields: [userId], references: [id])
+
+  plan            SubscriptionPlan   // MONTHLY o YEARLY
+  status          SubscriptionStatus @default(PENDING)
+  amount          Float              // Halaga na binayaran
+  currency        String             @default("PHP")
+
+  // Billing Period
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  trialEndsAt        DateTime?
+
+  // PayMongo
+  paymongoPaymentId  String?
+  paymongoLinkId     String?
+  checkoutUrl        String?
+
+  cancelledAt        DateTime?
+  cancellationReason String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MODEL: ServiceArea
+// ═══════════════════════════════════════════════════════════════════
+// Mga lugar na covered ng MGTM Express delivery service
+// ═══════════════════════════════════════════════════════════════════
+model ServiceArea {
+  id              String   @id @default(uuid())
+  name            String   @unique             // e.g. "Mangatarem"
+  province        String   @default("Pangasinan")
+  isActive        Boolean  @default(true)
+  estimatedMinutes Int?                        // Approximate delivery time
+  notes           String?
+  sortOrder       Int      @default(0)         // Para sa ordering sa dropdown
+  createdAt       DateTime @default(now())
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MODEL: MenuItem
+// ═══════════════════════════════════════════════════════════════════
+// Mga produkto/pagkain na available para i-order
+// ═══════════════════════════════════════════════════════════════════
+model MenuItem {
+  id           String    @id @default(uuid())
+  merchantId   String?                          // null = generic menu ng MGTM mismo
+  merchant     Merchant? @relation(fields: [merchantId], references: [id])
+
+  name         String
+  description  String?
+  price        Float
+  imageUrl     String?
+  category     String                           // Flexible string para sa iba't ibang merchants
+  tags         String?                          // Comma-separated tags para sa search
+  isAvailable  Boolean   @default(true)
+  isFeatured   Boolean   @default(false)
+  sortOrder    Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  orderItems   OrderItem[]
+
+  @@index([merchantId])
+  @@index([category])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MODEL: Order
+// ═══════════════════════════════════════════════════════════════════
+// Isang booking/order ng customer
+// Sumasaklaw sa lahat ng service types:
+//   FOOD_DELIVERY, GROCERY, MEDICINE, PASABAY_PABILI, ERRAND
+// ═══════════════════════════════════════════════════════════════════
+model Order {
+  id               String        @id @default(uuid())
+  orderNumber      String        @unique @default(cuid())
+  customerId       String
+  customer         User          @relation(fields: [customerId], references: [id])
+
+  // Service Classification
+  serviceType      ServiceType   @default(FOOD_DELIVERY)
+  type             OrderType     @default(DELIVERY)
+  status           OrderStatus   @default(PLACED)
+
+  // Payment
+  paymentMethod    PaymentMethod @default(COD)
+  paymentStatus    PaymentStatus @default(PENDING)
+  payment          Payment?
+
+  // Customer Info
+  customerName     String
+  phone            String
+  notes            String?
+
+  // Pickup Location (Merchant/Store)
+  pickupAddress    String?
+  pickupLatitude   Float?
+  pickupLongitude  Float?
+  pickupLocationLink String?
+
+  // Delivery Location (Customer)
+  deliveryAddress  String?
+  deliveryLatitude Float?
+  deliveryLongitude Float?
+  deliveryLocationLink String?
+
+  // Multi-Stop (para sa Pasabay Pabili at muli-store orders)
+  additionalStops  Int       @default(0)       // Bilang ng extra pickup locations
+
+  // Pricing Breakdown
+  subtotal         Float                       // Items subtotal
+  deliveryFee      Float     @default(0)       // Base delivery fee
+  additionalFee    Float     @default(0)       // ₱15 × additionalStops
+  totalFee         Float                       // deliveryFee + additionalFee
+  total            Float                       // subtotal + totalFee
+
+  // Distance & ETA
+  distanceKm       Float?                      // Computed na distansya
+  eta              Int?                        // Minutes
+  estimatedTime    DateTime?
+
+  // Rider Assignment (para sa future)
+  riderId          String?
+
+  // Timestamps
+  acceptedAt       DateTime?
+  preparedAt       DateTime?
+  pickedUpAt       DateTime?
+  deliveredAt      DateTime?
+  cancelledAt      DateTime?
+  cancellationReason String?
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Relations
+  items            OrderItem[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([serviceType])
+  @@index([createdAt])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MODEL: OrderItem
+// ═══════════════════════════════════════════════════════════════════
+model OrderItem {
+  id           String    @id @default(uuid())
+  orderId      String
+  order        Order     @relation(fields: [orderId], references: [id])
+  menuItemId   String?
+  menuItem     MenuItem? @relation(fields: [menuItemId], references: [id])
+
+  // Custom item (para sa Pasabay Pabili at Errand — hindi laging nasa menu)
+  customName   String?   // Pangalan ng item kung hindi nasa menu
+  customPrice  Float?    // Estimated price ng item
+
+  name         String    // Kopya ng pangalan sa oras ng order
+  quantity     Int
+  price        Float     // Kopya ng presyo sa oras ng order
+  subtotal     Float
+  notes        String?   // Special instructions para sa item na ito
+
+  @@index([orderId])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MODEL: Payment
+// ═══════════════════════════════════════════════════════════════════
+model Payment {
+  id                  String        @id @default(uuid())
+  orderId             String        @unique
+  order               Order         @relation(fields: [orderId], references: [id])
+
+  // PayMongo Details
+  paymongoLinkId      String?       // Payment link ID
+  paymongoSourceId    String?       // GCash/Maya source ID
+  paymongoPaymentId   String?       // Actual payment record ID
+  checkoutUrl         String?       // URL para sa customer
+
+  method              PaymentMethod
+  status              PaymentStatus @default(PENDING)
+  amount              Float
+  currency            String        @default("PHP")
+  description         String?
+
+  // Timestamps
+  paidAt              DateTime?
+  failedAt            DateTime?
+  expiredAt           DateTime?
+  refundedAt          DateTime?
+  refundAmount        Float?
+  refundReason        String?
+
+  // Raw webhook data para sa debugging
+  webhookEvents       Json?
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([status])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MODEL: EmailLog
+// ═══════════════════════════════════════════════════════════════════
+// Para mag-track ng lahat ng emails na naipadala
+// ═══════════════════════════════════════════════════════════════════
+model EmailLog {
+  id          String   @id @default(uuid())
+  to          String
+  subject     String
+  template    String   // Anong email template ang ginamit
+  status      String   @default("sent")  // sent, failed, bounced
+  orderId     String?
+  errorMsg    String?
+  sentAt      DateTime @default(now())
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MODEL: AnalyticsEvent
+// ═══════════════════════════════════════════════════════════════════
+// Para sa in-house analytics — mga important events
+// ═══════════════════════════════════════════════════════════════════
+model AnalyticsEvent {
+  id          String   @id @default(uuid())
+  event       String                     // Pangalan ng event (e.g. "order_placed")
+  userId      String?
+  orderId     String?
+  serviceType String?
+  metadata    Json?                      // Extra data
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([event])
+  @@index([createdAt])
+  @@index([userId])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ENUMS
+// ═══════════════════════════════════════════════════════════════════
+
+enum Role {
+  CUSTOMER        // Regular na customer
+  MERCHANT        // Store owner na gumagamit ng platform
+  RIDER           // Delivery rider
+  ADMIN           // Full access sa Admin Panel
+  SUPER_ADMIN     // Override lahat
+}
+
+// Uri ng service (core services ng MGTM Express)
+enum ServiceType {
+  FOOD_DELIVERY   // Pagkain mula sa mga restaurant
+  GROCERY         // Mga groceries mula sa palengke o supermarket
+  MEDICINE        // Gamot mula sa botika
+  PASABAY_PABILI  // Pabili ng kahit anong bagay
+  ERRAND          // Iba pang errands (bill payment, etc.)
+}
+
+enum OrderType {
+  DELIVERY        // Ipapadala sa customer
+  PICKUP          // Kukunin mismo ng customer
+}
+
+enum OrderStatus {
+  PLACED          // Bagong order, naghihintay ng confirmation
+  ACCEPTED        // Tinanggap, kasama na ang ETA
+  PREPARING       // Inihahanda (para sa food orders)
+  ON_THE_WAY      // Nasa daan na ang rider
+  ARRIVED         // Dumating na ang rider sa pickup point
+  DELIVERED       // Naihatid na sa customer
+  COMPLETED       // Kumpleto at bayad na (para sa COD)
+  CANCELLED       // Kinansela
+}
+
+enum PaymentMethod {
+  COD             // Cash on Delivery
+  GCASH           // GCash e-wallet via PayMongo
+  MAYA            // Maya e-wallet via PayMongo
+  CARD            // Credit/Debit card via PayMongo
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  EXPIRED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum SettingType {
+  STRING          // Regular na text
+  NUMBER          // Numeric value
+  BOOLEAN         // true/false
+  COLOR           // CSS color (e.g. "#22C55E")
+  JSON            // JSON object o array
+  TIME            // Time value (e.g. "08:00")
+  URL             // URL string
+}
+
+enum SettingCategory {
+  BRANDING        // Business name, logo, colors, tagline
+  PRICING         // Delivery rates, fees
+  OPERATIONS      // Operating hours, service areas
+  CONTACT         // Phone, email, address
+  INTEGRATIONS    // PayMongo, SMS, Email keys
+  FEATURES        // Feature flags (on/off)
+  NOTIFICATIONS   // Notification settings
+}
+
+enum SubscriptionPlan {
+  MONTHLY         // ₱1,499/month
+  YEARLY          // ₱15,289.80/year
+  FREE_TRIAL      // 14-day trial
+}
+
+enum SubscriptionStatus {
+  PENDING         // Hindi pa nagbabayad
+  ACTIVE          // Aktibong subscription
+  PAST_DUE        // Late na ang bayad
+  CANCELLED       // Kinansela
+  EXPIRED         // Nag-expire
+  TRIAL           // Nasa free trial
+}
