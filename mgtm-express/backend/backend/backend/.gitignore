@@ -1,0 +1,67 @@
+# ── Node Modules ────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ── Environment Variables ────────────────────────────────────────
+# HUWAG KAILANMAN i-commit ang .env!
+# Naglalaman ito ng mga secret API keys at passwords
+.env
+.env.local
+.env.development
+.env.production
+.env.staging
+.env.test
+
+# ── Uploaded Files ───────────────────────────────────────────────
+# Mga larawan ng ID, selfie, logo, etc.
+uploads/
+public/uploads/
+
+# ── Prisma ───────────────────────────────────────────────────────
+# Hindi na kailangan — ire-generate ng postinstall script
+# pero i-commit ang schema.prisma at migrations!
+
+# ── Build Output ─────────────────────────────────────────────────
+dist/
+build/
+.next/
+out/
+
+# ── Logs ─────────────────────────────────────────────────────────
+logs/
+*.log
+*.log.*
+
+# ── OS Files ─────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ── Editor / IDE ─────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+*.swo
+
+# ── Testing ──────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ── Temporary Files ──────────────────────────────────────────────
+tmp/
+temp/
+.tmp/
+.cache/
